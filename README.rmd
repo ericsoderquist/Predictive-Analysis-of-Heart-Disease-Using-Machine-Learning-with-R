@@ -1,0 +1,141 @@
+---
+title: "Predictive Analysis of Heart Disease Using Machine Learning with R"
+author: "Eric Soderquist"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: readable
+---
+
+# Introduction
+
+Heart disease is a major global health issue and a leading cause of death. Timely prediction of heart disease using clinical and demographic data can significantly improve outcomes through earlier intervention and tailored treatment strategies. This project aims to utilize machine learning techniques within R to predict heart disease incidence based on specific predictors.
+
+## Hypothesis
+
+We hypothesize that certain specific predictors, such as age, cholesterol levels, and blood pressure, amongst others, have significant predictive power in determining the likelihood of heart disease over others. This study will focus on quantifying the predictive strength of these indicators and develop a model that can effectively use these variables to predict heart disease.
+
+# Data Wrangling
+
+## Loading Necessary Packages
+
+```{r setup, include=FALSE}
+library(tidyverse) # for data manipulation and visualization
+library(caret)     # for modeling
+library(car)       # for checking multicollinearity
+library(ROSE)      # for balancing dataset
+library(randomForest) # for Random Forest model
+```
+
+## Downloading and Inspecting the Dataset
+```{r}
+# Downloading the dataset from UCI Machine Learning Repository
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data"
+heart_data <- read.csv(url, header = FALSE)
+
+# Naming the columns as per dataset description
+colnames(heart_data) <- c("age", "sex", "cp", "trestbps", "chol", "fbs", "restecg",
+                          "thalach", "exang", "oldpeak", "slope", "ca", "thal", "num")
+
+# Convert factor necessary variables
+heart_data$cp <- factor(heart_data$cp)
+heart_data$thal <- factor(heart_data$thal)
+heart_data$sex <- factor(heart_data$sex, labels = c("Female", "Male"))
+
+# Display the first few rows of the dataset
+head(heart_data)
+summary(heart_data)
+```
+
+## Exploratory Data Analysis (EDA)
+```{r eda}
+# Visualizing distribution of key predictors
+ggplot(heart_data, aes(x = age)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  ggtitle("Distribution of Age")
+
+ggplot(heart_data, aes(x = chol)) +
+  geom_histogram(bins = 30, fill = "green", color = "black") +
+  ggtitle("Distribution of Cholesterol Levels")
+
+# Scatter plot for Age vs. Cholesterol color coded by Heart Disease outcome
+ggplot(heart_data, aes(x = age, y = chol, color = factor(num))) +
+  geom_point() +
+  labs(color = "Heart Disease") +
+  ggtitle("Age vs. Cholesterol Levels by Heart Disease Outcome")
+```
+
+# Model Fitting
+
+## Preparing the Data for Modeling
+```{r prepare-data}
+# Recoding the 'num' column to binary (0 = no disease, 1 = presence of disease)
+heart_data$num <- ifelse(heart_data$num == 0, 0, 1)
+heart_data$num <- as.factor(heart_data$num)
+
+# Confirming the structure
+table(heart_data$num)
+```
+
+## Splitting the Dataset 
+```{r split-data}
+set.seed(123) # for reproducibility
+training_rows <- createDataPartition(heart_data$num, p = 0.8, list = FALSE)
+train_data <- heart_data[training_rows, ]
+test_data <- heart_data[-training_rows, ]
+
+table(train_data$num)
+
+# Balancing the training dataset
+balanced_data <- ovun.sample(num ~ age + chol + trestbps, data = train_data, method = "over", N = 1000)$data
+table(balanced_data$num)
+```
+## Model Training
+```{r}
+# Random Forest model
+fit_rf <- randomForest(num ~ age + chol + trestbps, data = balanced_data)
+print(fit_rf)
+```
+
+# Resampling
+
+## Cross-Validation
+```{r}
+control <- trainControl(method = "cv", number = 10) # 10-fold cross-validation
+cv_model <- train(num ~ age + chol + trestbps,
+          data = balanced_data,
+          method = "rf",
+          trControl = control)
+cv_model
+```
+
+# Conclusion and Discussion
+
+## Model Evaluation
+```{r model-evaluation}
+# Predicting on test set and ensuring factor levels are appropriate
+predictions <- predict(cv_model, newdata = test_data, type = "raw")
+predictions <- as.factor(predictions)  # Ensure predictions are a factor
+
+# Checking levels to make sure there are both classes
+table(predictions)
+table(test_data$num)
+
+# Check if both factors have at least two levels
+if (length(levels(predictions)) < 2 || length(levels(test_data$num)) < 2) {
+  print("Not enough factor levels for confusion matrix")
+} else {
+  # Using confusionMatrix from caret
+  confusionMatrix(as.factor(predictions), as.factor(test_data$num))
+}
+```
+
+In conclusion, our model, which uses age, cholesterol levels, and resting blood pressure as predictors, demonstrates a moderate level of accuracy in predicting the presence of heart disease. The model achieved an accuracy of approximately 56% on the test set, with a sensitivity of 50%. This suggests that while these variables may have some predictive power, the model as it is currently specified may not be sufficient for reliable early diagnosis in a clinical setting.
+
+It's important to note that the model was trained on a balanced dataset, where the majority class (no disease) was oversampled to match the size of the minority class (presence of disease). This was done to address the class imbalance in the original dataset, but it may have introduced some bias into the model. The model's relatively low sensitivity on the test set suggests that it may be overfitting to the oversampled majority class.
+
+Future work could explore other variables, use different resampling techniques, or try different models to improve the predictive performance. Furthermore, incorporating additional clinical variables, if available, could potentially enhance the model's predictive power.
+
+# Communication and Reproducibility
+
+This document, prepared in R Markdown, ensures that all steps from data processing to model evaluation are fully reproducible and well-documented, fostering transparency and ease of understanding in our analysis.
